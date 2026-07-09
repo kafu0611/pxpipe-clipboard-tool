@@ -1,0 +1,13 @@
+{
+  "name": "pxpipe-clipboard-tool",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Clipboard-to-pxpipe-image helper for Windows and macOS.",
+  "dependencies": {
+    "pxpipe-proxy": "^0.8.0"
+  },
+  "scripts": {
+    "render": "node ./pxpipe-render-text.mjs"
+  }
+}
