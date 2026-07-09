@@ -8,9 +8,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Windows argv quoting rule: only quotes, and backslash runs immediately before
+# a quote (or before the closing quote we add), need escaping. Doubling every
+# backslash happens to survive path normalization but is the wrong rule.
 function Quote-ProcessArgument {
     param([string]$Value)
-    '"' + ($Value -replace '\\', '\\' -replace '"', '\"') + '"'
+    '"' + ($Value -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+}
+
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+    throw "node is required. Install Node.js first."
 }
 
 $text = Get-Clipboard -Raw
@@ -31,7 +38,18 @@ $stderr = [System.IO.Path]::GetTempFileName()
 $inputFile = [System.IO.Path]::GetTempFileName()
 
 try {
-    Set-Content -LiteralPath $inputFile -Value $text -Encoding UTF8
+    # BOM-less UTF-8 with nothing appended: Set-Content -Encoding UTF8 on
+    # Windows PowerShell 5.1 writes a BOM (which Node's utf8 read keeps, so the
+    # renderer would see a stray U+FEFF) and adds a trailing newline.
+    [System.IO.File]::WriteAllText($inputFile, $text)
+
+    $rendererArgs = @()
+    if ($ImageOnly) {
+        # Image-only discards the text flavor, so characters the glyph atlas
+        # can't render (emoji, mostly) would be silently lost — refuse beyond
+        # 1% dropped (renderer exit code 3).
+        $rendererArgs += @("--max-drop-ratio", "0.01")
+    }
 
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = "node"
@@ -39,9 +57,8 @@ try {
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
     $psi.Arguments = @(
-        Quote-ProcessArgument $Renderer
-        Quote-ProcessArgument $inputFile
-        Quote-ProcessArgument $OutputDir
+        @($Renderer) + $rendererArgs + @($inputFile, $OutputDir) |
+            ForEach-Object { Quote-ProcessArgument $_ }
     ) -join " "
 
     $process = [System.Diagnostics.Process]::Start($psi)
@@ -54,8 +71,9 @@ try {
     $out = $outText -split "\r?\n" | Where-Object { $_ }
     $err = $errText -split "\r?\n" | Where-Object { $_ }
 
-    if ($process.ExitCode -eq 2) {
-        # Renderer declined: imaging wouldn't save tokens. Clipboard was never touched.
+    if ($process.ExitCode -eq 2 -or $process.ExitCode -eq 3) {
+        # Renderer declined: not profitable (2) or too much content loss (3).
+        # Clipboard was never touched.
         Write-Host ($err -join "`n")
         return
     }
@@ -79,34 +97,28 @@ try {
     }
     Get-ChildItem -LiteralPath $OutputDir -Filter "combined.png" -File | Remove-Item -Force
 
+    $savings = ""
+    $savedMatch = $err | Select-String -Pattern '[\d.]+% saved' | Select-Object -Last 1
+    if ($savedMatch) { $savings = "; " + $savedMatch.Matches[0].Value }
+
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
 
-    $copyPath = $pages[0]
-    $image = [System.Drawing.Image]::FromFile($copyPath)
-    try {
-        if ($ImageOnly) {
-            [System.Windows.Forms.Clipboard]::SetImage($image)
-        } else {
-            # Writes both the bitmap and the original text as separate formats on the
-            # same clipboard entry, so pasting into a plain-text target still works.
-            $dataObject = [System.Windows.Forms.DataObject]::new()
-            $dataObject.SetData([System.Windows.Forms.DataFormats]::Bitmap, $true, $image)
-            $dataObject.SetData([System.Windows.Forms.DataFormats]::UnicodeText, $true, $text)
-            [System.Windows.Forms.Clipboard]::SetDataObject($dataObject, $true)
-        }
-    } finally {
-        $image.Dispose()
-    }
-
-    if ($ImageOnly) {
-        Write-Host "Copied $copyPath to the clipboard (image only)."
-    } else {
-        Write-Host "Copied $copyPath to the clipboard (with original text as a fallback flavor)."
-    }
-    Write-Host "Rendered $($pages.Count) page(s) in $OutputDir."
     if ($pages.Count -gt 1) {
-        $message = "Rendered $($pages.Count) images. Page 1 is on the clipboard; opening the folder for the remaining pages."
+        # All pages go on the clipboard as a file drop list, so paste targets
+        # that accept file drops receive every page at once. The original text
+        # rides along as a separate format unless -ImageOnly.
+        $files = [System.Collections.Specialized.StringCollection]::new()
+        foreach ($page in $pages) { [void]$files.Add($page) }
+        $dataObject = [System.Windows.Forms.DataObject]::new()
+        $dataObject.SetFileDropList($files)
+        if (-not $ImageOnly) {
+            $dataObject.SetData([System.Windows.Forms.DataFormats]::UnicodeText, $true, $text)
+        }
+        [System.Windows.Forms.Clipboard]::SetDataObject($dataObject, $true)
+
+        Write-Host "Copied $($pages.Count) page files to the clipboard$savings."
+        $message = "Rendered $($pages.Count) images. All pages are on the clipboard as files; paste into a file-drop target to attach them all."
         Write-Host $message
 
         try {
@@ -121,9 +133,31 @@ try {
         } catch {
             Write-Host "Notification unavailable: $($_.Exception.Message)"
         }
+    } else {
+        $copyPath = $pages[0]
+        $image = [System.Drawing.Image]::FromFile($copyPath)
+        try {
+            if ($ImageOnly) {
+                [System.Windows.Forms.Clipboard]::SetImage($image)
+            } else {
+                # Writes both the bitmap and the original text as separate formats on the
+                # same clipboard entry, so pasting into a plain-text target still works.
+                $dataObject = [System.Windows.Forms.DataObject]::new()
+                $dataObject.SetData([System.Windows.Forms.DataFormats]::Bitmap, $true, $image)
+                $dataObject.SetData([System.Windows.Forms.DataFormats]::UnicodeText, $true, $text)
+                [System.Windows.Forms.Clipboard]::SetDataObject($dataObject, $true)
+            }
+        } finally {
+            $image.Dispose()
+        }
 
-        Start-Process explorer.exe -ArgumentList (Quote-ProcessArgument $OutputDir) | Out-Null
+        if ($ImageOnly) {
+            Write-Host "Copied $copyPath to the clipboard (image only$savings)."
+        } else {
+            Write-Host "Copied $copyPath to the clipboard (with original text as a fallback flavor$savings)."
+        }
     }
+    Write-Host "Rendered $($pages.Count) page(s) in $OutputDir."
     if ($err) {
         Write-Host ($err -join "`n")
     }

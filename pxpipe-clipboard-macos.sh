@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# pbpaste/pbcopy pick a text encoding from the locale; in LANG-less environments
+# (launchd, cron, some automation shells) non-ASCII clipboard text silently comes
+# back empty or lossy. Force UTF-8 for everything this script spawns.
+export LC_CTYPE=UTF-8
+unset LC_ALL
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 RENDERER="$SCRIPT_DIR/pxpipe-render-text.mjs"
 
@@ -42,16 +48,26 @@ fi
 
 mkdir -p "$OUTPUT_DIR"
 
+renderer_args=()
+if [[ "$image_only" == true ]]; then
+  # Image-only discards the text flavor, so characters the glyph atlas can't
+  # render (emoji, mostly) would be silently lost — refuse beyond 1% dropped.
+  renderer_args+=(--max-drop-ratio 0.01)
+fi
+
 set +e
 (
   cd "$SCRIPT_DIR"
-  node "$RENDERER" "$input_file" "$OUTPUT_DIR" >"$stdout_file" 2>"$stderr_file"
+  # ${arr[@]+...} guard: bash 3.2 (macOS default) treats expanding an empty
+  # array as an unbound variable under `set -u`.
+  node "$RENDERER" ${renderer_args[@]+"${renderer_args[@]}"} "$input_file" "$OUTPUT_DIR" >"$stdout_file" 2>"$stderr_file"
 )
 render_exit=$?
 set -e
 
-if [[ "$render_exit" -eq 2 ]]; then
-  # Renderer declined: imaging wouldn't save tokens. Clipboard was never touched.
+if [[ "$render_exit" -eq 2 || "$render_exit" -eq 3 ]]; then
+  # Renderer declined: not profitable (2) or too much content loss (3).
+  # Clipboard was never touched.
   cat "$stderr_file" >&2 || true
   exit 0
 elif [[ "$render_exit" -ne 0 ]]; then
@@ -80,27 +96,29 @@ done
 find "$OUTPUT_DIR" -maxdepth 1 -type f -name 'combined.png' -delete
 
 first_page="${pages[0]}"
+savings="$(grep -Eo '[0-9.]+% saved' "$stderr_file" | tail -n 1 || true)"
 
-if [[ "$image_only" == true ]]; then
+if [[ "${#pages[@]}" -gt 1 ]]; then
+  # All pages go on the clipboard as a file list, so paste targets that accept
+  # file drops receive every page at once — no manual trip to the folder.
+  osascript -l JavaScript "$SCRIPT_DIR/clipboard-write-files.js" "${pages[@]}"
+  echo "Copied ${#pages[@]} page files to the clipboard${savings:+ ($savings)}."
+  message="Rendered ${#pages[@]} images. All pages are on the clipboard as files; paste into a file-drop target to attach them all."
+  echo "$message"
+  osascript -e "display notification \"$message\" with title \"pxpipe images ready\"" >/dev/null 2>&1 || true
+elif [[ "$image_only" == true ]]; then
   # PNG only, no text flavor — for apps whose paste handler prefers text over
   # image whenever both are present on the clipboard.
   osascript "$SCRIPT_DIR/clipboard-write.applescript" "$first_page" ""
-  echo "Copied $first_page to the clipboard (image only)."
+  echo "Copied $first_page to the clipboard (image only${savings:+; $savings})."
 else
   # Writes both the PNG and the original text (still sitting in $input_file,
   # byte-exact) as separate flavors on the same clipboard entry, so pasting into
   # a plain-text target still works. Uses argv, not string interpolation, so
   # paths can't break out of the AppleScript source regardless of their contents.
   osascript "$SCRIPT_DIR/clipboard-write.applescript" "$first_page" "$input_file"
-  echo "Copied $first_page to the clipboard (with original text as a fallback flavor)."
+  echo "Copied $first_page to the clipboard (with original text as a fallback flavor${savings:+; $savings})."
 fi
 echo "Rendered ${#pages[@]} page(s) in $OUTPUT_DIR."
-
-if [[ "${#pages[@]}" -gt 1 ]]; then
-  message="Rendered ${#pages[@]} images. Page 1 is on the clipboard; opening the folder for the remaining pages."
-  echo "$message"
-  osascript -e "display notification \"$message\" with title \"pxpipe images ready\"" >/dev/null 2>&1 || true
-  open "$OUTPUT_DIR"
-fi
 
 cat "$stderr_file" >&2 || true
