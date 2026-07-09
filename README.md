@@ -105,13 +105,16 @@ Then restart your terminal or run `source ~/.zshrc`.
   untouched — `--image-only` never forces a losing trade, it only changes what
   gets written when the trade is already a win.
 - Single-page output: copies `page-01.png` to the clipboard.
-- Multi-page output: copies **all pages to the clipboard as a file list**, so
-  paste targets that accept file drops (Claude Code, Finder/Explorer, Slack, …)
-  receive every page at once, and shows a notification when possible. Note that
-  on macOS the file list carries no plain-text flavor, so a multi-page result
-  pasted into a text-only target yields file paths, not the original text (on
-  Windows the original text rides along unless `-ImageOnly`). The PNGs also
-  remain in the output folder.
+- Multi-page output:
+  - **macOS** copies **page 1** to the clipboard (with the original text as a
+    fallback flavor, as in the single-page case) and opens the output folder so
+    you can drag in the remaining pages, with a notification when possible.
+    macOS has no reliable way to place a multi-file list on the clipboard from a
+    short-lived `osascript` process, so it does not try.
+  - **Windows** copies **all pages to the clipboard as a file list**, so paste
+    targets that accept file drops (Explorer, Slack, …) receive every page at
+    once; the original text rides along as a separate format unless `-ImageOnly`.
+  - On both platforms the PNGs also remain in the output folder.
 - The final "Copied …" line includes the estimated token savings.
 - The tool intentionally does not merge pages. Very large merged images can cost
   more image tokens and can reduce legibility.

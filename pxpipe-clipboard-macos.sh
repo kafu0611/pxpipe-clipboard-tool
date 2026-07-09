@@ -98,15 +98,14 @@ find "$OUTPUT_DIR" -maxdepth 1 -type f -name 'combined.png' -delete
 first_page="${pages[0]}"
 savings="$(grep -Eo '[0-9.]+% saved' "$stderr_file" | tail -n 1 || true)"
 
-if [[ "${#pages[@]}" -gt 1 ]]; then
-  # All pages go on the clipboard as a file list, so paste targets that accept
-  # file drops receive every page at once — no manual trip to the folder.
-  osascript -l JavaScript "$SCRIPT_DIR/clipboard-write-files.js" "${pages[@]}"
-  echo "Copied ${#pages[@]} page files to the clipboard${savings:+ ($savings)}."
-  message="Rendered ${#pages[@]} images. All pages are on the clipboard as files; paste into a file-drop target to attach them all."
-  echo "$message"
-  osascript -e "display notification \"$message\" with title \"pxpipe images ready\"" >/dev/null 2>&1 || true
-elif [[ "$image_only" == true ]]; then
+# Put page 1 on the clipboard via the single-item write the single-page case
+# uses. macOS has no reliable way to place a multi-file list on the clipboard
+# from a short-lived osascript process — NSPasteboard writeObjects: provides
+# file-URL data lazily, and nothing persists once osascript exits (verified:
+# a fresh reader sees an empty pasteboard) — so for multi-page results we copy
+# page 1 and open the folder for the rest rather than silently clearing the
+# clipboard.
+if [[ "$image_only" == true ]]; then
   # PNG only, no text flavor — for apps whose paste handler prefers text over
   # image whenever both are present on the clipboard.
   osascript "$SCRIPT_DIR/clipboard-write.applescript" "$first_page" ""
@@ -120,5 +119,12 @@ else
   echo "Copied $first_page to the clipboard (with original text as a fallback flavor${savings:+; $savings})."
 fi
 echo "Rendered ${#pages[@]} page(s) in $OUTPUT_DIR."
+
+if [[ "${#pages[@]}" -gt 1 ]]; then
+  message="Rendered ${#pages[@]} images. Page 1 is on the clipboard; opening the folder for the remaining pages."
+  echo "$message"
+  osascript -e "display notification \"$message\" with title \"pxpipe images ready\"" >/dev/null 2>&1 || true
+  open "$OUTPUT_DIR"
+fi
 
 cat "$stderr_file" >&2 || true
