@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "license": "MIT",
   "description": "Clipboard-to-pxpipe-image helper for Windows and macOS.",
   "dependencies": {
     "pxpipe-proxy": "^0.8.0"
