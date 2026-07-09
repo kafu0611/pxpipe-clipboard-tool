@@ -111,12 +111,11 @@ node ./pxpipe-render-text.mjs --force input.txt ./pxpipe-images
 
 ## Credits
 
-This is not a fork of [teamchong/pxpipe](https://github.com/teamchong/pxpipe) —
-it's an independent clipboard-focused wrapper that depends on pxpipe's
-`pxpipe-proxy` npm package (MIT licensed; declared in `package.json`) for the
-underlying text-to-image rendering. The design this tool is built around —
-rendering dense text as PNG pages to reduce vision-token cost relative to
-plain text — originates there. A few internal, unexported cost-model
+This tool builds on [teamchong/pxpipe](https://github.com/teamchong/pxpipe)
+(MIT licensed), which provides the underlying text-to-image rendering via its
+`pxpipe-proxy` npm package (declared as a dependency in `package.json`). The
+core design — rendering dense text as PNG pages to reduce vision-token cost
+relative to plain text — originates there. A few internal, unexported cost-model
 constants used by the profitability gate (`REPORT_CHARS_PER_TOKEN`,
 `ANTHROPIC_PIXELS_PER_TOKEN`, the per-page token formula) are also adapted
 directly from `pxpipe-proxy`'s source, since no public API exposes them; see
