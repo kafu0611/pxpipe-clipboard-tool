@@ -1,6 +1,9 @@
 param(
     [string]$OutputDir = "$env:USERPROFILE\pxpipe-images",
-    [string]$Renderer = "$PSScriptRoot\pxpipe-render-text.mjs"
+    [string]$Renderer = "$PSScriptRoot\pxpipe-render-text.mjs",
+    # PNG only, no text flavor — for apps whose paste handler prefers text over
+    # image whenever both are present on the clipboard.
+    [switch]$ImageOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,9 +22,7 @@ if (-not (Test-Path -LiteralPath $Renderer)) {
     throw "Renderer not found: $Renderer"
 }
 
-if (Test-Path -LiteralPath $OutputDir) {
-    Get-ChildItem -LiteralPath $OutputDir -Filter "page-*.png" -File | Remove-Item -Force
-} else {
+if (-not (Test-Path -LiteralPath $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir | Out-Null
 }
 
@@ -53,7 +54,12 @@ try {
     $out = $outText -split "\r?\n" | Where-Object { $_ }
     $err = $errText -split "\r?\n" | Where-Object { $_ }
 
-    if ($process.ExitCode -ne 0) {
+    if ($process.ExitCode -eq 2) {
+        # Renderer declined: imaging wouldn't save tokens. Clipboard was never touched.
+        Write-Host ($err -join "`n")
+        return
+    }
+    elseif ($process.ExitCode -ne 0) {
         throw "Renderer failed with exit code $($process.ExitCode). $($err -join ' ')"
     }
 
@@ -62,18 +68,42 @@ try {
         throw "Renderer did not produce any PNG files. $($err -join ' ')"
     }
 
+    # Renderer overwrote page-01..N in place. Only now, having confirmed a fresh
+    # successful render exists, remove stale higher-numbered pages left behind by
+    # an earlier run that produced more pages than this one.
+    Get-ChildItem -LiteralPath $OutputDir -Filter "page-*.png" -File | ForEach-Object {
+        if ($_.BaseName -match 'page-0*(\d+)$') {
+            $idx = [int]$Matches[1]
+            if ($idx -gt $pages.Count) { Remove-Item -LiteralPath $_.FullName -Force }
+        }
+    }
+    Get-ChildItem -LiteralPath $OutputDir -Filter "combined.png" -File | Remove-Item -Force
+
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
 
     $copyPath = $pages[0]
     $image = [System.Drawing.Image]::FromFile($copyPath)
     try {
-        [System.Windows.Forms.Clipboard]::SetImage($image)
+        if ($ImageOnly) {
+            [System.Windows.Forms.Clipboard]::SetImage($image)
+        } else {
+            # Writes both the bitmap and the original text as separate formats on the
+            # same clipboard entry, so pasting into a plain-text target still works.
+            $dataObject = [System.Windows.Forms.DataObject]::new()
+            $dataObject.SetData([System.Windows.Forms.DataFormats]::Bitmap, $true, $image)
+            $dataObject.SetData([System.Windows.Forms.DataFormats]::UnicodeText, $true, $text)
+            [System.Windows.Forms.Clipboard]::SetDataObject($dataObject, $true)
+        }
     } finally {
         $image.Dispose()
     }
 
-    Write-Host "Copied $copyPath to the clipboard."
+    if ($ImageOnly) {
+        Write-Host "Copied $copyPath to the clipboard (image only)."
+    } else {
+        Write-Host "Copied $copyPath to the clipboard (with original text as a fallback flavor)."
+    }
     Write-Host "Rendered $($pages.Count) page(s) in $OutputDir."
     if ($pages.Count -gt 1) {
         $message = "Rendered $($pages.Count) images. Page 1 is on the clipboard; opening the folder for the remaining pages."
