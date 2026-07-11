@@ -127,11 +127,18 @@ const inputPath = stdinMode ? null : positional[0];
 const outDir = stdinMode ? positional[0] : positional[1];
 const denseOnly = profile === "dense";
 
-const text = stdinMode ? await readStdin() : await readFile(inputPath, "utf8");
-if (!text.trim()) {
+const rawText = stdinMode ? await readStdin() : await readFile(inputPath, "utf8");
+if (!rawText.trim()) {
   console.error("No text received.");
   process.exit(1);
 }
+// Leading/trailing whitespace (including blank lines) contributes no meaning
+// but still occupies real, billed rows in the rendered image — the renderer
+// sizes each page to its actual line count, so blank edge lines are not free
+// padding, they are paid pixels. Trimming here (not just at the presence
+// check above) keeps the text-token count and the image consistent with what
+// actually gets imaged.
+const text = rawText.trim();
 
 const { core, nodeModules } = await loadPxpipe();
 const { renderTextToImages } = core;

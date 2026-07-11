@@ -108,6 +108,38 @@ test("--report-json records the decision and estimates", { skip }, async () => {
   assert.ok(["live", "fallback"].includes(report.costModelSource));
 });
 
+test("leading/trailing blank lines are trimmed before tokenizing and rendering", { skip }, async () => {
+  // Blank edge lines still occupy real, billed rows in the rendered image (the
+  // renderer sizes each page to its actual line count) — they must not inflate
+  // the reported cost or the persisted artifacts.
+  const padded = `\n\n\n${LARGE_TEXT}\n\n\n\n\n\n\n\n\n\n`;
+  const reportPadded = path.join(tmpDir, "report-padded.json");
+  const reportBare = path.join(tmpDir, "report-bare.json");
+
+  const paddedRes = run(["--stdin", "--dry-run", "--report-json", reportPadded, path.join(tmpDir, "unused1")], {
+    input: padded,
+  });
+  const bareRes = run(["--stdin", "--dry-run", "--report-json", reportBare, path.join(tmpDir, "unused2")], {
+    input: LARGE_TEXT,
+  });
+  assert.equal(paddedRes.status, 0);
+  assert.equal(bareRes.status, 0);
+
+  const padReport = JSON.parse(await readFile(reportPadded, "utf8"));
+  const bareReport = JSON.parse(await readFile(reportBare, "utf8"));
+  assert.equal(padReport.textTokens, bareReport.textTokens, "blank edge lines must not count as text tokens");
+  assert.equal(padReport.imageTokens, bareReport.imageTokens, "blank edge lines must not inflate billed image pixels");
+  assert.equal(padReport.pages, bareReport.pages);
+});
+
+test("--keep-artifacts persists the trimmed text, not the raw padded input", { skip }, async () => {
+  const outDir = path.join(tmpDir, "trim-artifact");
+  const res = run(["--stdin", "--keep-artifacts", outDir], { input: `\n\n${LARGE_TEXT}\n\n\n` });
+  assert.equal(res.status, 0);
+  const original = await readFile(path.join(outDir, "original.txt"), "utf8");
+  assert.equal(original, LARGE_TEXT);
+});
+
 test("--report-json is written on gated exits too", { skip }, async () => {
   const reportPath = path.join(tmpDir, "report-gated.json");
   const res = run(["--stdin", "--dry-run", "--report-json", reportPath, path.join(tmpDir, "unused")], {

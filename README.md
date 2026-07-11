@@ -116,6 +116,14 @@ never in the image.
 
 ## Behavior
 
+- **Leading/trailing blank lines are trimmed.** The renderer sizes each page to
+  its actual line count, so blank lines at the very start or end of the
+  clipboard content aren't free — they occupy real, billed pixel rows just
+  like any other line. The tool trims the text (and only the copy it images
+  and tokenizes) before rendering, so an accidental trailing blank line or two
+  from your copy source doesn't cost extra image tokens or push content onto
+  an extra page. This does not touch the clipboard's text flavor, which still
+  carries exactly what you copied.
 - **Profitability gate.** Before writing anything, the tool compares text tokens
   vs. image tokens for your clipboard content. Text tokens are counted with a
   real tokenizer (`gpt-tokenizer`'s o200k encoding, already installed as
