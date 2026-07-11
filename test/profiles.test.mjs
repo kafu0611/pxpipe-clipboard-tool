@@ -83,7 +83,7 @@ test("hybrid detects anchors and reports them without persisting anything extra"
   const report = JSON.parse(await readFile(reportPath, "utf8"));
   assert.equal(report.profile, "hybrid");
   assert.ok(report.anchors.includes(SHA));
-  assert.equal(report.factsheetTokens, 0, "no factsheet requested, so none may be charged");
+  assert.equal(report.factsheetTokens, 0, "no factsheet requested, so its cost is zero");
   // Without --emit-factsheet / --keep-artifacts the out dir holds pages only.
   const written = await readdir(outDir);
   assert.ok(written.every((f) => f.endsWith(".png")), `unexpected non-PNG artifacts: ${written}`);
@@ -95,7 +95,7 @@ test("balanced skips anchor detection", { skip }, () => {
   assert.doesNotMatch(res.stderr, /anchor token/);
 });
 
-test("--emit-factsheet writes the anchor block and charges its tokens", { skip }, async () => {
+test("--emit-factsheet writes the anchor block and reports its token cost", { skip }, async () => {
   const outDir = freshDir();
   const factsheetPath = path.join(tmpDir, `factsheet-${seq}.txt`);
   const reportPath = path.join(tmpDir, `report-fs-${seq}.json`);
@@ -108,7 +108,25 @@ test("--emit-factsheet writes the anchor block and charges its tokens", { skip }
   assert.ok(factsheet.includes(SHA));
   assert.ok(factsheet.includes("47821"));
   const report = JSON.parse(await readFile(reportPath, "utf8"));
-  assert.ok(report.factsheetTokens > 0, "emitted factsheet must count against the gate");
+  assert.ok(report.factsheetTokens > 0, "reported cost must reflect the emitted file");
+});
+
+test("emitting a factsheet never turns a profitable render unprofitable", { skip }, async () => {
+  // The factsheet is a separate, optional companion the user chooses to
+  // transmit — its cost must be informational only, never charged against
+  // the image-vs-text decision (regression: a fixed-size boilerplate header
+  // used to be added to the gate for every hybrid render with any anchors,
+  // which could flip small identifier-heavy renders to NOT_PROFITABLE even
+  // though the image alone was clearly cheaper than the text).
+  const withoutFactsheet = run(["--profile", "balanced", "--stdin", "--dry-run", freshDir()], {
+    input: IDENTIFIER_TEXT,
+  });
+  const withFactsheet = run(
+    ["--stdin", "--dry-run", "--emit-factsheet", path.join(tmpDir, `fs-parity-${seq}.txt`), freshDir()],
+    { input: IDENTIFIER_TEXT }
+  );
+  assert.equal(withoutFactsheet.status, 0);
+  assert.equal(withFactsheet.status, withoutFactsheet.status, "requesting a factsheet must not change the gate outcome");
 });
 
 test("--emit-factsheet skips the file when no anchors exist", { skip }, async () => {

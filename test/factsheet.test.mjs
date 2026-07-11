@@ -104,13 +104,17 @@ test("handles pathological unbroken tokens without hanging", () => {
   assert.ok(Date.now() - start < 5_000);
 });
 
-test("formatAnchorBlock renders header plus one token per line", () => {
+test("formatAnchorBlock renders a one-line header plus one token per line", () => {
   const block = formatAnchorBlock([{ value: "8b525a1", kind: "hex" }, { value: "src/a.ts", kind: "posix-path" }]);
   const lines = block.split("\n");
-  assert.match(lines[0], /anchor block/);
-  assert.match(lines[1], /original text remains authoritative/);
-  assert.equal(lines[2], "8b525a1");
-  assert.equal(lines[3], "src/a.ts");
+  // Kept to a single short line on purpose: this file may itself be read by a
+  // model, so its own boilerplate should not dwarf one or two identifiers —
+  // see the regression where a two-sentence header inflated factsheetTokens
+  // enough to tip small identifier-heavy renders into NOT_PROFITABLE.
+  assert.match(lines[0], /^# pxpipe anchors/);
+  assert.match(lines[0], /original text is authoritative/);
+  assert.equal(lines[1], "8b525a1");
+  assert.equal(lines[2], "src/a.ts");
 });
 
 test("formatAnchorBlock returns empty string for no tokens", () => {

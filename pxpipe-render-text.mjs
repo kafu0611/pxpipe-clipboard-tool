@@ -161,8 +161,10 @@ const tokenBasis = encode ? "o200k" : `chars/${costModel.REPORT_CHARS_PER_TOKEN}
 const anchors = profile === "hybrid" ? extractAnchorTokens(text) : [];
 const anchorBlock = anchors.length > 0 ? formatAnchorBlock(anchors) : "";
 const willEmitFactsheet = Boolean(emitFactsheetPath) && anchors.length > 0;
-// Honest accounting: an emitted factsheet rides alongside the image, so its
-// tokens count against the savings — but only when it will actually be written.
+// Informational only — NOT charged against the profitability gate. The
+// factsheet is a separate, optional companion the user deliberately chooses
+// to transmit (see --copy-factsheet); it is never assumed to ride along with
+// the image by default, so its cost must not decide whether imaging wins.
 const factsheetTokens = willEmitFactsheet
   ? (encode
       ? encode(anchorBlock).length
@@ -195,7 +197,7 @@ const chosenCost = imageTokenCost(chosen.pages, costModel);
 const dropRatio = text.length > 0 ? chosen.droppedChars / text.length : 0;
 const gate = evaluateGates({
   textTokens,
-  imageCost: chosenCost + factsheetTokens,
+  imageCost: chosenCost,
   dropRatio,
   maxDropRatio,
   force,
@@ -223,9 +225,8 @@ async function writeReport() {
 }
 
 if (!gate.ok && gate.reason === "not_profitable") {
-  const factsheetNote = factsheetTokens > 0 ? ` + ~${factsheetTokens} factsheet` : "";
   console.error(
-    `NOT_PROFITABLE: text ~${textTokens} tokens (${tokenBasis}), image ~${chosenCost}${factsheetNote} tokens ` +
+    `NOT_PROFITABLE: text ~${textTokens} tokens (${tokenBasis}), image ~${chosenCost} tokens ` +
     `(mode: ${chosenLabel}) — leaving clipboard unchanged.`
   );
   await writeReport();

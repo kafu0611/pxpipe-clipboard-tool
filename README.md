@@ -97,9 +97,11 @@ never in the image.
 - On Windows multi-page output, `factsheet.txt` is appended to the file-drop
   list — best-effort only; the paste target may ignore any file in the list.
 - The renderer only writes `factsheet.txt` when asked (`--emit-factsheet PATH`,
-  which the wrappers pass in hybrid) *and* anchors were actually found; the
-  factsheet's own token cost is charged against the profitability gate whenever
-  it will be written.
+  which the wrappers pass in hybrid) *and* anchors were actually found. Its
+  token cost is reported (`factsheetTokens` in `--report-json`) but is
+  **informational only** — it is never charged against the profitability gate.
+  The factsheet is a separate, optional companion you choose to transmit; its
+  cost must not decide whether imaging the text wins in the first place.
 
 ### Privacy & artifacts
 
