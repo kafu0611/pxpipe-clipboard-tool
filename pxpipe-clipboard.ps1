@@ -1,33 +1,12 @@
 param(
     [string]$OutputDir = "$env:USERPROFILE\pxpipe-images",
     [string]$Renderer = "$PSScriptRoot\pxpipe-render-text.mjs",
-    # hybrid: adaptive render plus anchor-token detection (default).
-    # balanced: adaptive render only. dense: explicitly lossy dense render.
-    # off: leave the clipboard untouched and do nothing.
-    [ValidateSet("hybrid", "balanced", "dense", "off")]
-    [string]$Profile = "hybrid",
     # PNG only, no text flavor — for apps whose paste handler prefers text over
     # image whenever both are present on the clipboard.
-    [switch]$ImageOnly,
-    # Put the factsheet (detected anchor tokens) on the clipboard as plain text
-    # instead of the image; the rendered pages stay on disk in $OutputDir.
-    # An explicit second step by design: one clipboard entry cannot guarantee
-    # a paste target consumes both the image and the factsheet.
-    [switch]$CopyFactsheet,
-    # Also persist the original clipboard text as original.txt in $OutputDir.
-    # Off by default so secrets and private content never land on disk silently.
-    [switch]$KeepArtifacts
+    [switch]$ImageOnly
 )
 
 $ErrorActionPreference = "Stop"
-
-if ($Profile -eq "off") {
-    Write-Host "Profile 'off': nothing rendered, clipboard left unchanged."
-    return
-}
-if ($CopyFactsheet -and $Profile -ne "hybrid") {
-    throw "-CopyFactsheet requires the hybrid profile (anchor detection is a hybrid feature)."
-}
 
 # Windows argv quoting rule: only quotes, and backslash runs immediately before
 # a quote (or before the closing quote we add), need escaping. Doubling every
@@ -68,17 +47,7 @@ try {
     # text flavor below still carries $text exactly as it came in.
     [System.IO.File]::WriteAllText($inputFile, ($text -replace "`r`n", "`n"))
 
-    $factsheetPath = Join-Path $OutputDir "factsheet.txt"
-    $rendererArgs = @("--profile", $Profile)
-    if ($Profile -eq "hybrid") {
-        # Always request the factsheet in hybrid: multi-page drop lists and
-        # -CopyFactsheet both need the file, and the renderer skips it anyway
-        # when no anchor tokens are found.
-        $rendererArgs += @("--emit-factsheet", $factsheetPath)
-    }
-    if ($KeepArtifacts) {
-        $rendererArgs += @("--keep-artifacts")
-    }
+    $rendererArgs = @()
     if ($ImageOnly) {
         # Image-only discards the text flavor, so characters the glyph atlas
         # can't render (emoji, mostly) would be silently lost — refuse beyond
@@ -132,19 +101,6 @@ try {
     }
     Get-ChildItem -LiteralPath $OutputDir -Filter "combined.png" -File | Remove-Item -Force
 
-    # The renderer reports on stderr whether it wrote a factsheet this run and
-    # whether anchor tokens exist. A factsheet.txt from an earlier run must not
-    # outlive a render of different content.
-    $factsheetEmitted = [bool]($err | Where-Object { $_ -match '^Factsheet: ' })
-    $anchorsDetected = [bool]($err | Where-Object { $_ -match 'anchor token\(s\) detected' })
-    if (-not $factsheetEmitted -and (Test-Path -LiteralPath $factsheetPath)) {
-        Remove-Item -LiteralPath $factsheetPath -Force
-    }
-    if (-not $KeepArtifacts) {
-        $originalPath = Join-Path $OutputDir "original.txt"
-        if (Test-Path -LiteralPath $originalPath) { Remove-Item -LiteralPath $originalPath -Force }
-    }
-
     $savings = ""
     $savedMatch = $err | Select-String -Pattern '[\d.]+% saved' | Select-Object -Last 1
     if ($savedMatch) { $savings = "; " + $savedMatch.Matches[0].Value }
@@ -152,32 +108,12 @@ try {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
 
-    if ($CopyFactsheet -and $factsheetEmitted) {
-        # Deliberate factsheet step: the clipboard carries the exact tokens as
-        # plain text; the rendered pages stay on disk for manual attachment.
-        $factsheetText = [System.IO.File]::ReadAllText($factsheetPath)
-        [System.Windows.Forms.Clipboard]::SetText($factsheetText)
-        Write-Host "Copied the factsheet to the clipboard as text$savings."
-        Write-Host "Rendered page(s) are in $OutputDir - attach them separately."
-        Write-Host ($err -join "`n")
-        return
-    }
-    if ($CopyFactsheet) {
-        Write-Host "No anchor tokens detected; continuing with the normal clipboard copy."
-    }
-
     if ($pages.Count -gt 1) {
         # All pages go on the clipboard as a file drop list, so paste targets
         # that accept file drops receive every page at once. The original text
         # rides along as a separate format unless -ImageOnly.
         $files = [System.Collections.Specialized.StringCollection]::new()
         foreach ($page in $pages) { [void]$files.Add($page) }
-        if ($factsheetEmitted) {
-            # Best-effort: file-drop targets receive the anchor tokens alongside
-            # the pages, but a target may ignore any file — this is a convenience,
-            # not a guarantee the factsheet arrives.
-            [void]$files.Add($factsheetPath)
-        }
         $dataObject = [System.Windows.Forms.DataObject]::new()
         $dataObject.SetFileDropList($files)
         if (-not $ImageOnly) {
@@ -185,9 +121,7 @@ try {
         }
         [System.Windows.Forms.Clipboard]::SetDataObject($dataObject, $true)
 
-        $factsheetNote = ""
-        if ($factsheetEmitted) { $factsheetNote = " plus factsheet.txt (best-effort)" }
-        Write-Host "Copied $($pages.Count) page files$factsheetNote to the clipboard$savings."
+        Write-Host "Copied $($pages.Count) page files to the clipboard$savings."
         $message = "Rendered $($pages.Count) images. All pages are on the clipboard as files; paste into a file-drop target to attach them all."
         Write-Host $message
 
@@ -223,11 +157,6 @@ try {
 
         if ($ImageOnly) {
             Write-Host "Copied $copyPath to the clipboard (image only$savings)."
-            if ($anchorsDetected) {
-                Write-Warning ("Anchor tokens were detected but the image-only clipboard cannot carry them, " +
-                    "and exact values are not reliably recoverable from the image. " +
-                    "Run again with -CopyFactsheet to copy them as text.")
-            }
         } else {
             Write-Host "Copied $copyPath to the clipboard (with original text as a fallback flavor$savings)."
         }

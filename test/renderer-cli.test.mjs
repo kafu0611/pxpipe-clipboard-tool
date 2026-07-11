@@ -104,7 +104,6 @@ test("--report-json records the decision and estimates", { skip }, async () => {
   assert.ok(report.textTokens > report.imageTokens, "dry run passed the gate, so text must cost more");
   assert.equal(report.dropRatio, 0);
   assert.ok(report.pages >= 1);
-  assert.deepEqual(report.anchors, []);
   assert.ok(["live", "fallback"].includes(report.costModelSource));
 });
 
@@ -130,14 +129,6 @@ test("leading/trailing blank lines are trimmed before tokenizing and rendering",
   assert.equal(padReport.textTokens, bareReport.textTokens, "blank edge lines must not count as text tokens");
   assert.equal(padReport.imageTokens, bareReport.imageTokens, "blank edge lines must not inflate billed image pixels");
   assert.equal(padReport.pages, bareReport.pages);
-});
-
-test("--keep-artifacts persists the trimmed text, not the raw padded input", { skip }, async () => {
-  const outDir = path.join(tmpDir, "trim-artifact");
-  const res = run(["--stdin", "--keep-artifacts", outDir], { input: `\n\n${LARGE_TEXT}\n\n\n` });
-  assert.equal(res.status, 0);
-  const original = await readFile(path.join(outDir, "original.txt"), "utf8");
-  assert.equal(original, LARGE_TEXT);
 });
 
 test("--report-json is written on gated exits too", { skip }, async () => {

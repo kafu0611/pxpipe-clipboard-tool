@@ -65,57 +65,6 @@ alias pxclip="/path/to/pxpipe-clipboard-tool/pxpipe-clipboard-macos.sh"
 
 Then restart your terminal or run `source ~/.zshrc`.
 
-## Profiles
-
-Both wrappers and the renderer take a profile (Windows: `-Profile <name>`,
-macOS/renderer: `--profile <name>`):
-
-| Profile | What it does |
-| --- | --- |
-| `hybrid` (default) | Adaptive render plus **anchor-token detection**: exact identifiers (git SHAs, UUIDs, file paths, URLs, ports, versions, long numbers) found in the text are reported, and can be emitted as a plain-text factsheet. |
-| `balanced` | The adaptive render exactly as before — no anchor detection. |
-| `dense` | Dense/reflow candidate only. Explicitly lossy: upstream measured **0/15** verbatim recall of 12-char hex identifiers from dense pages, so the renderer prints a warning. |
-| `off` | Do nothing; the clipboard is left untouched. |
-
-**What `hybrid` is — and is not.** Anchor extraction is a best-effort recovery
-aid, not a safety guarantee. The patterns can and will miss identifiers they
-have no rule for, and no clipboard mechanism guarantees a paste target consumes
-the factsheet. Exact values remain authoritative **only** in the original text
-(the clipboard's text flavor) or in a factsheet you transmit deliberately —
-never in the image.
-
-### Factsheet workflow
-
-- Normal hybrid paste is unchanged: the clipboard carries the PNG **and** the
-  original text as separate flavors, exactly like before.
-- `-ImageOnly` / `--image-only` copies the PNG alone; when anchor tokens were
-  detected you get a warning, because the image cannot carry them reliably.
-- `-CopyFactsheet` / `--copy-factsheet` (hybrid only) is the deliberate second
-  step: it puts the **factsheet text** on the clipboard instead of the image
-  (the rendered pages stay in the output folder for manual attachment). Use it
-  after an `-ImageOnly` run when the warning fired.
-- On Windows multi-page output, `factsheet.txt` is appended to the file-drop
-  list — best-effort only; the paste target may ignore any file in the list.
-- The renderer only writes `factsheet.txt` when asked (`--emit-factsheet PATH`,
-  which the wrappers pass in hybrid) *and* anchors were actually found. Its
-  token cost is reported (`factsheetTokens` in `--report-json`) but is
-  **informational only** — it is never charged against the profitability gate.
-  The factsheet is a separate, optional companion you choose to transmit; its
-  cost must not decide whether imaging the text wins in the first place.
-
-### Privacy & artifacts
-
-- The original clipboard text is **never persisted to disk by default** — it
-  exists only on the clipboard and in a temp file that is deleted when the run
-  ends, success or failure.
-- `-KeepArtifacts` / `--keep-artifacts` opts in to writing `original.txt` next
-  to the pages.
-- A `factsheet.txt` left over from an earlier run is deleted whenever a new
-  render doesn't produce one, so a stale factsheet never ships with fresh pages.
-  (Note: anchor tokens themselves *do* land in `factsheet.txt` when emitted —
-  that is its purpose. If the text contains identifiers you consider secret,
-  use `balanced` or `off`.)
-
 ## Behavior
 
 - **Leading/trailing blank lines are trimmed.** The renderer sizes each page to
@@ -182,7 +131,7 @@ Manual render, forcing a specific mode:
 
 ```sh
 # Dense-only candidate (still gated — declines if not profitable)
-node ./pxpipe-render-text.mjs --profile dense input.txt ./pxpipe-images
+node ./pxpipe-render-text.mjs --dense input.txt ./pxpipe-images
 
 # Bypass the gates entirely and write unconditionally
 node ./pxpipe-render-text.mjs --force input.txt ./pxpipe-images
@@ -190,21 +139,16 @@ node ./pxpipe-render-text.mjs --force input.txt ./pxpipe-images
 # Report the decision and estimated savings without writing anything
 node ./pxpipe-render-text.mjs --dry-run input.txt ./pxpipe-images
 
-# Emit the anchor factsheet and a machine-readable decision report
-node ./pxpipe-render-text.mjs --emit-factsheet ./pxpipe-images/factsheet.txt \
-  --report-json ./report.json input.txt ./pxpipe-images
+# Also write a machine-readable decision report
+node ./pxpipe-render-text.mjs --report-json ./report.json input.txt ./pxpipe-images
 ```
-
-`--dense` still works as a deprecated alias for `--profile dense` and will be
-removed in a future release.
 
 **Renderer output contract:** stdout carries the written PNG paths, one per
 line, and nothing else — scripts may rely on that. Everything else (warnings,
-savings, factsheet notices) goes to stderr; machine consumers should use
-`--report-json PATH`, which records the decision, profile, mode, token
-estimates, drop ratio, detected anchors, and whether the cost constants came
-from the installed package (`costModelSource: "live"`) or the pinned fallbacks
-(`"fallback"`).
+savings) goes to stderr; machine consumers should use `--report-json PATH`,
+which records the decision, mode, token estimates, drop ratio, and whether the
+cost constants came from the installed package (`costModelSource: "live"`) or
+the pinned fallbacks (`"fallback"`).
 
 Renderer exit codes: `0` success, `1` usage/input error, `2` declined (not
 profitable), `3` declined (too many unrenderable characters for the requested
@@ -231,9 +175,8 @@ To move the pin:
    cost constants, bundled tokenizer). A `costModelSource: "fallback"` failure
    there means the estimates would silently drift; fix the adapter first.
 3. Prefer newly public upstream APIs over local code when they appear — e.g.
-   swap `lib/factsheet.mjs` for upstream's factsheet module if it is ever
-   exported, and drop the deep import if the cost constants gain a public
-   export. Never depend on unreleased upstream `main`.
+   drop the deep import in `lib/pxpipe-adapter.mjs` if the cost constants ever
+   gain a public export. Never depend on unreleased upstream `main`.
 
 ## Credits
 
@@ -250,8 +193,5 @@ package's `dist/core/transform.js` — they are module-level exports that just
 aren't on the package's public exports map — with pinned literals as a
 fallback when that deep import fails (the renderer warns and reports
 `costModelSource: "fallback"` when that happens); the per-page token formula is
-adapted from `pxpipe-proxy`'s `export.js`. The anchor-token patterns in
-`lib/factsheet.mjs` credit upstream's (unexported, unreleased)
-`src/core/factsheet.ts` for the idea and are kept API-shaped like it so the
-module can be swapped for the upstream extractor if it is published. See the
-citation comments in each file for exact references.
+adapted from `pxpipe-proxy`'s `export.js`. See the citation comments in each
+file for exact references.
