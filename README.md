@@ -33,9 +33,12 @@ For a shortcut, add this to your PowerShell profile:
 
 ```powershell
 function pxclip {
-  powershell -ExecutionPolicy Bypass -File "C:\path\to\pxpipe-clipboard-tool\pxpipe-clipboard.ps1"
+  powershell -ExecutionPolicy Bypass -File "C:\path\to\pxpipe-clipboard-tool\pxpipe-clipboard.ps1" @args
 }
 ```
+
+`@args` forwards whatever you pass to `pxclip` (e.g. `pxclip -ImageOnly`) on to the script —
+without it, PowerShell functions silently drop any arguments the caller supplies.
 
 ## macOS
 
