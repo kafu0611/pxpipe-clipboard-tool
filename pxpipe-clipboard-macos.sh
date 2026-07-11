@@ -15,6 +15,14 @@ positional=()
 for arg in "$@"; do
   if [[ "$arg" == "--image-only" ]]; then
     image_only=true
+  elif [[ "$arg" == -* ]]; then
+    # An unrecognized flag must not silently fall through to positional —
+    # it would become the output directory name (e.g. a typo like
+    # --images would create a folder literally called "--images") with no
+    # indication anything was wrong. Fail loudly instead.
+    echo "Unknown option: $arg" >&2
+    echo "Usage: pxpipe-clipboard-macos.sh [--image-only] [output-dir]" >&2
+    exit 1
   else
     positional+=("$arg")
   fi

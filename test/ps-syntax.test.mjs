@@ -47,3 +47,15 @@ test("pxpipe-clipboard-macos.sh passes bash -n", () => {
   }
   assert.equal(bash.status, 0, `bash -n failed:\n${bash.stderr}`);
 });
+
+test("pxpipe-clipboard-macos.sh rejects an unrecognized flag instead of treating it as the output dir", () => {
+  // The argument-parsing loop runs before the pbpaste/macOS check, so this is
+  // testable on any platform with bash — a typo like --images must not
+  // silently become the output directory name (regression: it used to).
+  const bash = spawnSync("bash", [path.join(repoRoot, "pxpipe-clipboard-macos.sh"), "--images"], {
+    encoding: "utf8",
+  });
+  if (bash.error) return; // No bash on this machine.
+  assert.equal(bash.status, 1);
+  assert.match(bash.stderr, /Unknown option: --images/);
+});
