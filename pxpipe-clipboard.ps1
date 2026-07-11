@@ -1,12 +1,25 @@
+# CmdletBinding makes unknown parameters a hard error instead of a silent
+# no-op: without it, a typo like -images (instead of -ImageOnly) binds to
+# nothing, throws nothing, and the script quietly runs with default behavior
+# — image-only was requested but never happened, with no indication why.
+[CmdletBinding()]
 param(
     [string]$OutputDir = "$env:USERPROFILE\pxpipe-images",
-    [string]$Renderer = "$PSScriptRoot\pxpipe-render-text.mjs",
+    # No default here: with CmdletBinding, parameter default-VALUE expressions
+    # are evaluated before $PSScriptRoot is populated, so "$PSScriptRoot\..."
+    # would silently resolve to just "\pxpipe-render-text.mjs". Defaulted
+    # below instead, where $PSScriptRoot is reliably set.
+    [string]$Renderer,
     # PNG only, no text flavor — for apps whose paste handler prefers text over
     # image whenever both are present on the clipboard.
     [switch]$ImageOnly
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $Renderer) {
+    $Renderer = "$PSScriptRoot\pxpipe-render-text.mjs"
+}
 
 # Windows argv quoting rule: only quotes, and backslash runs immediately before
 # a quote (or before the closing quote we add), need escaping. Doubling every
