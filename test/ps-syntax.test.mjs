@@ -26,4 +26,24 @@ for (const script of ["pxpipe-clipboard.ps1"]) {
     );
     assert.equal(res.status, 0, `PowerShell 5.1 failed to parse ${script}:\n${res.stderr}`);
   });
+
+  test(`${script} keeps user-visible strings ASCII-safe`, async () => {
+    // PowerShell 5.1 reads BOM-less .ps1 files in the system ANSI codepage, so
+    // any non-ASCII character in a string literal renders as mojibake on
+    // non-Latin locales. Comments are exempt (never displayed).
+    const source = await (await import("node:fs/promises")).readFile(path.join(repoRoot, script), "utf8");
+    for (const [index, line] of source.split(/\r?\n/).entries()) {
+      const beforeComment = line.split("#")[0];
+      assert.match(beforeComment, /^[\x00-\x7F]*$/, `${script}:${index + 1} has non-ASCII outside a comment`);
+    }
+  });
 }
+
+test("pxpipe-clipboard-macos.sh passes bash -n", () => {
+  const bash = spawnSync("bash", ["-n", path.join(repoRoot, "pxpipe-clipboard-macos.sh")], { encoding: "utf8" });
+  if (bash.error) {
+    // No bash on this machine — nothing to check here.
+    return;
+  }
+  assert.equal(bash.status, 0, `bash -n failed:\n${bash.stderr}`);
+});
